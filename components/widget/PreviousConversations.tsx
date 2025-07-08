@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useInView } from "react-intersection-observer";
 import HumanizedTime from "@/components/humanizedTime";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useWidgetTranslations } from "@/components/widget/i18n";
 import { sendMessageToParent } from "@/lib/widget/messages";
 
 type Conversation = {
@@ -58,6 +59,7 @@ async function fetchConversations({
 }
 
 export default function PreviousConversations({ token, onSelectConversation, isAnonymous }: Props) {
+  const { t } = useWidgetTranslations();
   const { ref, inView } = useInView();
 
   const [isCleared, setIsCleared] = useState(false);
@@ -100,7 +102,7 @@ export default function PreviousConversations({ token, onSelectConversation, isA
           ))}
         </div>
       ) : isCleared || conversations.length === 0 ? (
-        <div className="flex h-40 items-center justify-center text-gray-500">No previous conversations found</div>
+        <div className="flex h-40 items-center justify-center text-gray-500">{t("ui.noPreviousConversations")}</div>
       ) : (
         <div className="space-y-3">
           {isAnonymous && (
@@ -114,7 +116,7 @@ export default function PreviousConversations({ token, onSelectConversation, isA
                     <Trash2 className="h-5 w-5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Clear history</TooltipContent>
+                <TooltipContent>{t("ui.clearHistory")}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}

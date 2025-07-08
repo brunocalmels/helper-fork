@@ -7,6 +7,7 @@ import { ReadPageToolConfig } from "@helperai/sdk";
 import { assertDefined } from "@/components/utils/assert";
 import ChatInput from "@/components/widget/ChatInput";
 import { eventBus, messageQueue } from "@/components/widget/eventBus";
+import { useWidgetTranslations } from "@/components/widget/i18n";
 import type { MessageWithReaction } from "@/components/widget/Message";
 import MessagesList from "@/components/widget/MessagesList";
 import MessagesSkeleton from "@/components/widget/MessagesSkeleton";
@@ -44,6 +45,7 @@ export default function Conversation({
   guideEnabled,
   resumeGuide,
 }: Props) {
+  const { t } = useWidgetTranslations();
   const { conversationSlug, setConversationSlug, createConversation } = useNewConversation(token);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [isEscalated, setIsEscalated] = useState(false);
@@ -296,7 +298,7 @@ export default function Conversation({
         handleSubmit={handleSubmit}
         isLoading={isLoading}
         isGumroadTheme={isGumroadTheme}
-        placeholder={isProvidingDetails ? "Provide additional details..." : "Ask a question..."}
+        placeholder={isProvidingDetails ? t("placeholders.provideDetails") : t("placeholders.askQuestion")}
       />
     </>
   );

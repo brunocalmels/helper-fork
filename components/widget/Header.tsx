@@ -2,13 +2,14 @@ import { History, Maximize2, Minimize2, X } from "lucide-react";
 import React from "react";
 import { HelperWidgetConfig } from "@helperai/sdk";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useWidgetTranslations } from "@/components/widget/i18n";
 import { closeWidget, toggleWidgetHeight } from "@/lib/widget/messages";
 
 type Props = {
   config: HelperWidgetConfig;
   onShowPreviousConversations: () => void;
   onNewConversation: () => void;
-  title: string;
+  title: React.ReactNode;
 };
 
 const NewChatIcon = React.memo(() => (
@@ -19,6 +20,7 @@ const NewChatIcon = React.memo(() => (
 ));
 
 const Header = React.memo(function Header({ config, onShowPreviousConversations, onNewConversation, title }: Props) {
+  const { t } = useWidgetTranslations();
   const [isMaximized, setIsMaximized] = React.useState(() => {
     return localStorage.getItem("helper_widget_minimized") !== "true";
   });
@@ -45,24 +47,24 @@ const Header = React.memo(function Header({ config, onShowPreviousConversations,
               <button
                 className="text-primary hover:text-muted-foreground p-1 rounded-full hover:bg-muted"
                 onClick={onNewConversation}
-                aria-label="Start new conversation"
+                aria-label={t("ariaLabels.startNewConversation")}
               >
                 <NewChatIcon />
               </button>
             </TooltipTrigger>
-            <TooltipContent>New conversation</TooltipContent>
+            <TooltipContent>{t("ui.newConversation")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 className="text-primary hover:text-muted-foreground p-1 rounded-full hover:bg-muted"
                 onClick={onShowPreviousConversations}
-                aria-label="Show previous conversations"
+                aria-label={t("ariaLabels.showPreviousConversations")}
               >
                 <History className="h-5 w-5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>History</TooltipContent>
+            <TooltipContent>{t("ui.history")}</TooltipContent>
           </Tooltip>
           {shouldShowMinimizeButton && (
             <Tooltip>
@@ -70,12 +72,12 @@ const Header = React.memo(function Header({ config, onShowPreviousConversations,
                 <button
                   className="text-primary hover:text-muted-foreground p-1 rounded-full hover:bg-muted"
                   onClick={handleToggleHeight}
-                  aria-label={isMaximized ? "Minimize widget" : "Maximize widget"}
+                  aria-label={isMaximized ? t("ariaLabels.minimizeWidget") : t("ariaLabels.maximizeWidget")}
                 >
                   {isMaximized ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{isMaximized ? "Minimize" : "Maximize"}</TooltipContent>
+              <TooltipContent>{isMaximized ? t("ui.minimize") : t("ui.maximize")}</TooltipContent>
             </Tooltip>
           )}
           <Tooltip>
@@ -83,12 +85,12 @@ const Header = React.memo(function Header({ config, onShowPreviousConversations,
               <button
                 className="text-primary hover:text-muted-foreground p-1 rounded-full hover:bg-muted"
                 onClick={() => closeWidget()}
-                aria-label="Close chat"
+                aria-label={t("ariaLabels.closeChat")}
               >
                 <X className="h-5 w-5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Close chat</TooltipContent>
+            <TooltipContent>{t("ui.closeChat")}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>

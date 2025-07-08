@@ -5,6 +5,7 @@ import { useSpeechRecognition } from "@/components/hooks/useSpeechRecognition";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useWidgetCommands, useWidgetTranslations } from "@/components/widget/i18n";
 import ShadowHoverButton from "@/components/widget/ShadowHoverButton";
 import { useScreenshotStore } from "@/components/widget/widgetState";
 import { captureExceptionAndLog } from "@/lib/shared/sentry";
@@ -21,44 +22,6 @@ type Props = {
   placeholder?: string;
 };
 
-const SCREENSHOT_KEYWORDS = [
-  "error",
-  "I can't",
-  "wrong",
-  "trouble",
-  "problem",
-  "issue",
-  "glitch",
-  "bug",
-  "broken",
-  "doesn't work",
-  "doesn't load",
-  "not loading",
-  "crash",
-  "stuck",
-  "fails",
-  "failure",
-  "failed",
-  "missing",
-  "can't find",
-  "can't see",
-  "doesn't show",
-  "not showing",
-  "not working",
-  "incorrect",
-  "unexpected",
-  "strange",
-  "weird",
-  "help me",
-  "confused",
-  "404",
-  "500",
-  "not responding",
-  "slow",
-  "hangs",
-  "screenshot",
-];
-
 export default function ChatInput({
   input,
   inputRef,
@@ -68,6 +31,8 @@ export default function ChatInput({
   isGumroadTheme,
   placeholder,
 }: Props) {
+  const { t } = useWidgetTranslations();
+  const { closeCommands, screenshotTriggers } = useWidgetCommands();
   const [showScreenshot, setShowScreenshot] = useState(false);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
   const { screenshot, setScreenshot } = useScreenshotStore();
@@ -116,10 +81,10 @@ export default function ChatInput({
     if (!input) {
       setShowScreenshot(false);
       setIncludeScreenshot(false);
-    } else if (SCREENSHOT_KEYWORDS.some((keyword) => input.toLowerCase().includes(keyword))) {
+    } else if (screenshotTriggers.some((keyword: string) => input.toLowerCase().includes(keyword))) {
       setShowScreenshot(true);
     }
-  }, [input]);
+  }, [input, screenshotTriggers]);
 
   useEffect(() => {
     if (screenshot?.response) {
@@ -130,13 +95,7 @@ export default function ChatInput({
 
   const submit = () => {
     const normalizedInput = input.trim().toLowerCase();
-    if (
-      ["exit", "cancel", "close", "stop", "quit", "end", "bye"].some((cmd) => normalizedInput === cmd) ||
-      normalizedInput.includes("exit chat") ||
-      normalizedInput.includes("exit this chat") ||
-      normalizedInput.includes("close this chat") ||
-      normalizedInput.includes("close chat")
-    ) {
+    if (closeCommands.some((cmd: string) => normalizedInput === cmd || normalizedInput.includes(cmd))) {
       closeWidget();
       return;
     }
@@ -167,7 +126,7 @@ export default function ChatInput({
       >
         <div className="flex-1 flex items-start">
           <Textarea
-            aria-label="Ask a question"
+            aria-label={t("ariaLabels.askQuestion")}
             ref={inputRef}
             value={input}
             onChange={(e) => {
@@ -196,7 +155,7 @@ export default function ChatInput({
                         "bg-muted": isRecording,
                       })}
                       disabled={isLoading}
-                      aria-label={isRecording ? "Stop" : "Dictate"}
+                      aria-label={isRecording ? t("ariaLabels.stopDictation") : t("ariaLabels.startDictation")}
                     >
                       <Mic
                         className={cn("w-4 h-4", {
@@ -206,7 +165,7 @@ export default function ChatInput({
                       />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>{isRecording ? "Stop" : "Dictate"}</TooltipContent>
+                  <TooltipContent>{isRecording ? t("ui.stop") : t("ui.dictate")}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}
@@ -236,7 +195,7 @@ export default function ChatInput({
               className="cursor-pointer flex items-center gap-2 text-sm text-muted-foreground"
             >
               <Camera className="w-4 h-4" />
-              Include a screenshot for better support?
+              {t("ui.includeScreenshot")}
             </label>
           </motion.div>
         )}

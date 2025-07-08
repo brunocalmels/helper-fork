@@ -9,7 +9,9 @@ import { HelperWidgetConfig, MESSAGE_TYPE, RESUME_GUIDE } from "@helperai/sdk";
 import Conversation from "@/components/widget/Conversation";
 import { eventBus, messageQueue } from "@/components/widget/eventBus";
 import Header from "@/components/widget/Header";
+import HeaderTitle from "@/components/widget/HeaderTitle";
 import { useReadPageTool } from "@/components/widget/hooks/useReadPageTool";
+import { WidgetI18nProvider } from "@/components/widget/i18n";
 import PreviousConversations from "@/components/widget/PreviousConversations";
 import PromptDetailsModal from "@/components/widget/PromptDetailsModal";
 import { useWidgetView } from "@/components/widget/useWidgetView";
@@ -139,77 +141,77 @@ export default function Page() {
     return <div />;
   }
 
-  const headerTitle = currentView === "previous" ? "History" : (config.title ?? defaultTitle ?? "Support");
-
   return (
     <QueryClientProvider client={queryClient}>
-      <style>
-        {buildThemeCss(
-          theme ?? {
-            background: "#ffffff",
-            foreground: "#000000",
-            primary: "#000000",
-            accent: "#000000",
-            sidebarBackground: "#ffffff",
-          },
-        )}
-      </style>
-      <div
-        className={cx("light flex h-screen w-full flex-col responsive-chat max-w-full sm:max-w-[520px]", {
-          "bg-gumroad-bg": isGumroadTheme,
-          "bg-background": !isGumroadTheme,
-        })}
-      >
-        <Header
-          config={config}
-          onShowPreviousConversations={onShowPreviousConversations}
-          onNewConversation={memoizedHandleNewConversation}
-          title={headerTitle}
-        />
-        <div className="relative flex-1 overflow-hidden">
-          {showingPromptInfo && (
-            <PromptDetailsModal
-              onClose={() => togglePromptInfo()}
-              allMessages={showingPromptInfo.allMessages}
-              message={showingPromptInfo.message}
-              promptInfo={showingPromptInfo.promptInfo}
-            />
+      <WidgetI18nProvider config={{ locale: (config as any).locale }}>
+        <style>
+          {buildThemeCss(
+            theme ?? {
+              background: "#ffffff",
+              foreground: "#000000",
+              primary: "#000000",
+              accent: "#000000",
+              sidebarBackground: "#ffffff",
+            },
           )}
-          <LazyMotion features={domAnimation}>
-            <m.div
-              className="absolute inset-0 flex"
-              animate={currentView === "previous" ? "previous" : "chat"}
-              variants={{ previous: { x: 0 }, chat: { x: "-100%" } }}
-              transition={{ type: "tween", duration: 0.3 }}
-            >
-              <div className="shrink-0 w-full h-full">
-                <div className="h-full overflow-y-auto p-4">
-                  {currentView === "previous" && hasLoadedHistory && (
-                    <PreviousConversations
-                      token={token}
-                      onSelectConversation={onSelectConversation}
-                      isAnonymous={isAnonymous}
-                    />
-                  )}
+        </style>
+        <div
+          className={cx("light flex h-screen w-full flex-col responsive-chat max-w-full sm:max-w-[520px]", {
+            "bg-gumroad-bg": isGumroadTheme,
+            "bg-background": !isGumroadTheme,
+          })}
+        >
+          <Header
+            config={config}
+            onShowPreviousConversations={onShowPreviousConversations}
+            onNewConversation={memoizedHandleNewConversation}
+            title={<HeaderTitle currentView={currentView} configTitle={config.title} defaultTitle={defaultTitle} />}
+          />
+          <div className="relative flex-1 overflow-hidden">
+            {showingPromptInfo && (
+              <PromptDetailsModal
+                onClose={() => togglePromptInfo()}
+                allMessages={showingPromptInfo.allMessages}
+                message={showingPromptInfo.message}
+                promptInfo={showingPromptInfo.promptInfo}
+              />
+            )}
+            <LazyMotion features={domAnimation}>
+              <m.div
+                className="absolute inset-0 flex"
+                animate={currentView === "previous" ? "previous" : "chat"}
+                variants={{ previous: { x: 0 }, chat: { x: "-100%" } }}
+                transition={{ type: "tween", duration: 0.3 }}
+              >
+                <div className="shrink-0 w-full h-full">
+                  <div className="h-full overflow-y-auto p-4">
+                    {currentView === "previous" && hasLoadedHistory && (
+                      <PreviousConversations
+                        token={token}
+                        onSelectConversation={onSelectConversation}
+                        isAnonymous={isAnonymous}
+                      />
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              <div className="shrink-0 w-full h-full flex flex-col">
-                <Conversation
-                  token={token}
-                  readPageTool={readPageToolCall}
-                  isGumroadTheme={isGumroadTheme}
-                  isNewConversation={isNewConversation}
-                  selectedConversationSlug={selectedConversationSlug}
-                  onLoadFailed={memoizedHandleNewConversation}
-                  guideEnabled={config.enableGuide ?? false}
-                  resumeGuide={resumeGuide}
-                />
-              </div>
-            </m.div>
-          </LazyMotion>
+                <div className="shrink-0 w-full h-full flex flex-col">
+                  <Conversation
+                    token={token}
+                    readPageTool={readPageToolCall}
+                    isGumroadTheme={isGumroadTheme}
+                    isNewConversation={isNewConversation}
+                    selectedConversationSlug={selectedConversationSlug}
+                    onLoadFailed={memoizedHandleNewConversation}
+                    guideEnabled={config.enableGuide ?? false}
+                    resumeGuide={resumeGuide}
+                  />
+                </div>
+              </m.div>
+            </LazyMotion>
+          </div>
         </div>
-      </div>
+      </WidgetI18nProvider>
     </QueryClientProvider>
   );
 }

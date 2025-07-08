@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { generateHelperAuth, HelperProvider, type HelperWidgetConfig } from "@helperai/react";
 import { getBaseUrl } from "@/components/constants";
+import { locales } from "@/components/widget/i18n/locales";
 import { AppLayout } from "./appLayout";
+import LocaleSwitcher from "./localeSwitcher";
 import { WidgetButtons } from "./widgetButtons";
 
 export const dynamic = "force-dynamic";
@@ -9,20 +11,24 @@ export const dynamic = "force-dynamic";
 export default async function WidgetTest({
   searchParams,
 }: {
-  searchParams: Promise<{ email?: string; isVip?: string; anonymous?: string }>;
+  searchParams: Promise<{ email?: string; isVip?: string; anonymous?: string; locale?: string }>;
 }) {
   if (getBaseUrl() !== "https://helperai.dev") {
     return <div>Only available in development</div>;
   }
 
-  const { email, isVip, anonymous } = await searchParams;
+  const { email, isVip, anonymous, locale } = await searchParams;
 
   const helperAuth = anonymous ? {} : generateHelperAuth({ email: email ?? "test@example.com" });
+
+  const currentLocale = locale === "es" ? "es" : "en";
+  const translations = locales[currentLocale];
 
   const config: HelperWidgetConfig = {
     mailboxSlug: "gumroad",
     ...helperAuth,
-    title: "Support & Help",
+    title: translations.ui.supportAndHelp,
+    locale: locale as "en" | "es" | undefined,
     experimentalReadPage: false,
     enableGuide: true,
     customerMetadata: anonymous
@@ -58,6 +64,7 @@ export default async function WidgetTest({
         <Link href="/widget/test/vanilla" className="mt-4 text-sm text-muted-foreground hover:underline">
           Vanilla JavaScript Test Page →
         </Link>
+        <LocaleSwitcher currentLocale={locale} />
       </div>
     </HelperProvider>
   );
