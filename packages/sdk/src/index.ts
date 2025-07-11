@@ -61,6 +61,7 @@ class HelperWidget {
   private readonly CONVERSATION_STORAGE_KEY = "helper_widget_conversation";
   private readonly MINIMIZED_STORAGE_KEY = "helper_widget_minimized";
   private readonly ANONYMOUS_SESSION_TOKEN_KEY = "helper_widget_anonymous_session_token";
+  private readonly HAS_BEEN_OPENED_STORAGE_KEY = "helper_widget_has_been_opened";
   private currentConversationSlug: string | null = null;
   private screenshotContext: Context | null = null;
   private renderedContactForms: Set<HTMLElement> = new Set();
@@ -164,6 +165,9 @@ class HelperWidget {
 
   private loadPreviousStatusFromLocalStorage(): void {
     if (!this.sessionToken) return;
+
+    // Load hasBeenOpened state
+    this.hasBeenOpened = localStorage.getItem(this.HAS_BEEN_OPENED_STORAGE_KEY) === "true";
 
     const wasVisible = localStorage.getItem(this.VISIBILITY_STORAGE_KEY) === "true";
     if (wasVisible) {
@@ -287,6 +291,7 @@ class HelperWidget {
     this.connectExistingToggleElements();
     this.connectExistingContactFormElements();
     this.setupMutationObserver();
+    this.setupNavigationDetection();
 
     let resizeTimeout: NodeJS.Timeout;
     window.addEventListener("resize", () => {
@@ -451,6 +456,7 @@ class HelperWidget {
         sessionToken: this.sessionToken,
         pageHTML: document.documentElement.outerHTML,
         currentURL: window.location.href,
+        isMinimized: this.isMinimized,
       },
     });
   }
@@ -529,6 +535,129 @@ class HelperWidget {
     this.observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  private setupNavigationDetection(): void {
+    // Listen for page navigation events that work across different frameworks
+    window.addEventListener("pageshow", () => {
+      setTimeout(() => this.ensureDOMIntegrity(), 100);
+    });
+
+    // Listen for popstate (back/forward navigation)
+    window.addEventListener("popstate", () => {
+      setTimeout(() => this.ensureDOMIntegrity(), 100);
+    });
+
+    // Track URL changes as fallback for SPA navigation
+    let currentUrl = window.location.href;
+    const checkUrlChange = () => {
+      const newUrl = window.location.href;
+      if (newUrl !== currentUrl) {
+        currentUrl = newUrl;
+        this.ensureDOMIntegrity();
+      }
+    };
+
+    // Check for URL changes periodically (fallback for frameworks that don't trigger events)
+    setInterval(checkUrlChange, 1000);
+  }
+
+  private ensureDOMIntegrity(): void {
+    let needsRecreation = false;
+
+    // Check if essential elements are missing from DOM using isConnected
+    if (this.iframeWrapper && !this.iframeWrapper.isConnected) {
+      this.iframeWrapper = null;
+      this.iframe = null;
+      this.isIframeReady = false;
+      needsRecreation = true;
+    }
+
+    if (this.helperIcon && !this.helperIcon.isConnected) {
+      this.helperIcon = null;
+      needsRecreation = true;
+    }
+
+    if (this.notificationContainer && !this.notificationContainer.isConnected) {
+      this.notificationContainer = null;
+      this.notificationBubbles.clear();
+      needsRecreation = true;
+    }
+
+    if (this.toggleButton && !this.toggleButton.isConnected) {
+      this.toggleButton = null;
+      needsRecreation = true;
+    }
+
+    if (needsRecreation) {
+      this.recreateMissingElements();
+    }
+  }
+
+  private recreateMissingElements(): void {
+    // Load hasBeenOpened state from localStorage in case it was lost
+    this.hasBeenOpened = localStorage.getItem(this.HAS_BEEN_OPENED_STORAGE_KEY) === "true";
+    
+    // Recreate wrapper if missing
+    if (!this.iframeWrapper) {
+      this.createLoadingOverlay();
+      this.createWrapper();
+    }
+
+    // Recreate notification container if missing
+    if (!this.notificationContainer) {
+      this.createNotificationContainer();
+    }
+    
+    // Recreate helper icon if missing and should be shown
+    if (!this.helperIcon && this.showWidget) {
+      this.addHelperIcon();
+    }
+
+    // Recreate toggle button if missing and was previously shown
+    if (!this.toggleButton && this.hasBeenOpened) {
+      this.createToggleButton();
+      if (this.toggleButton) {
+        document.body.appendChild(this.toggleButton);
+        const wasVisible = localStorage.getItem(this.VISIBILITY_STORAGE_KEY) === "true";
+        if (!wasVisible && (this.showToggleButton === true || (this.showToggleButton === null && !this.showWidget))) {
+          (this.toggleButton as HTMLButtonElement).classList.add("visible");
+        }
+      }
+    }
+
+    // Restore visibility state if widget was visible
+    const wasVisible = localStorage.getItem(this.VISIBILITY_STORAGE_KEY) === "true";
+    if (wasVisible && this.iframeWrapper) {
+      this.iframeWrapper.classList.add("visible");
+      this.isVisible = true;
+      
+      // Recreate iframe if it was visible but missing
+      if (!this.iframe) {
+        this.isIframeReady = false;
+        this.createIframe();
+      }
+    }
+
+    // Restore minimized state (only on desktop)
+    if (window.innerWidth >= 640) {
+      const wasMinimized = localStorage.getItem(this.MINIMIZED_STORAGE_KEY) === "true";
+      if (wasMinimized && this.iframeWrapper) {
+        this.iframeWrapper.classList.add("minimized");
+        this.isMinimized = true;
+        if (this.toggleButton) {
+          this.toggleButton.classList.add("with-minimized-widget");
+        }
+      } else {
+        this.isMinimized = false;
+      }
+    }
+
+    // Restore conversation state
+    const savedConversation = localStorage.getItem(this.CONVERSATION_STORAGE_KEY);
+    if (savedConversation && savedConversation.length > 0) {
+      this.currentConversationSlug = savedConversation;
+    }
+  }
+
   private createToggleButton(): void {
     // Skip creating the toggle button if explicitly disabled
     if (this.showToggleButton === false) return;
@@ -592,6 +721,7 @@ class HelperWidget {
 
       if (!this.hasBeenOpened) {
         this.hasBeenOpened = true;
+        localStorage.setItem(this.HAS_BEEN_OPENED_STORAGE_KEY, "true");
         // Create and append the toggle button when the widget is first opened
         this.createToggleButton();
         if (this.toggleButton) {
@@ -773,18 +903,21 @@ class HelperWidget {
 
   public static show(): void {
     if (HelperWidget.instance) {
+      HelperWidget.instance.ensureDOMIntegrity();
       HelperWidget.instance.showInternal();
     }
   }
 
   public static hide(): void {
     if (HelperWidget.instance) {
+      HelperWidget.instance.ensureDOMIntegrity();
       HelperWidget.instance.hideInternal();
     }
   }
 
   public static toggle(): void {
     if (HelperWidget.instance) {
+      HelperWidget.instance.ensureDOMIntegrity();
       HelperWidget.instance.toggleInternal();
     }
   }
@@ -809,6 +942,7 @@ class HelperWidget {
 
   public static sendPrompt(prompt: string | null): void {
     if (HelperWidget.instance) {
+      HelperWidget.instance.ensureDOMIntegrity();
       HelperWidget.instance.sendPromptToEmbed(prompt);
       HelperWidget.instance.showInternal();
     }
@@ -816,6 +950,7 @@ class HelperWidget {
 
   public static startGuide(prompt: string): void {
     if (HelperWidget.instance) {
+      HelperWidget.instance.ensureDOMIntegrity();
       HelperWidget.instance.startGuideInternal(prompt);
     }
   }
@@ -883,6 +1018,8 @@ class HelperWidget {
   }
 
   private showNotification(message: string, conversationSlug: string, notificationId: number): void {
+    this.ensureDOMIntegrity();
+    
     let bubble = this.notificationBubbles.get(conversationSlug);
     if (!bubble) {
       bubble = this.createNotificationBubble(conversationSlug);
