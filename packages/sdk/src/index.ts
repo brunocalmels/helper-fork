@@ -65,6 +65,8 @@ class HelperWidget {
   private currentConversationSlug: string | null = null;
   private screenshotContext: Context | null = null;
   private renderedContactForms: Set<HTMLElement> = new Set();
+  private startUrlMonitoring: (() => void) | null = null;
+  private lastIntegrityCheck = 0;
 
   private constructor(config: HelperWidgetConfig) {
     this.config = config;
@@ -536,31 +538,37 @@ class HelperWidget {
   }
 
   private setupNavigationDetection(): void {
-    // Listen for page navigation events that work across different frameworks
-    window.addEventListener("pageshow", () => {
+    const handleNavigation = () => {
       setTimeout(() => this.ensureDOMIntegrity(), 100);
-    });
-
-    // Listen for popstate (back/forward navigation)
-    window.addEventListener("popstate", () => {
-      setTimeout(() => this.ensureDOMIntegrity(), 100);
-    });
-
-    // Track URL changes as fallback for SPA navigation
-    let currentUrl = window.location.href;
-    const checkUrlChange = () => {
-      const newUrl = window.location.href;
-      if (newUrl !== currentUrl) {
-        currentUrl = newUrl;
-        this.ensureDOMIntegrity();
-      }
     };
 
-    // Check for URL changes periodically (fallback for frameworks that don't trigger events)
-    setInterval(checkUrlChange, 1000);
+    // Listen for navigation events
+    window.addEventListener("pageshow", handleNavigation);
+    window.addEventListener("popstate", handleNavigation);
+
+    // Lazy URL monitoring - only start after first DOM issue detected
+    let urlCheckInterval: NodeJS.Timeout | null = null;
+    let currentUrl = window.location.href;
+    
+    this.startUrlMonitoring = () => {
+      if (urlCheckInterval) return;
+      
+      urlCheckInterval = setInterval(() => {
+        const newUrl = window.location.href;
+        if (newUrl !== currentUrl) {
+          currentUrl = newUrl;
+          this.ensureDOMIntegrity();
+        }
+      }, 1000);
+    };
   }
 
   private ensureDOMIntegrity(): void {
+    // Debounce: only check every 500ms to avoid excessive calls
+    const now = Date.now();
+    if (now - this.lastIntegrityCheck < 500) return;
+    this.lastIntegrityCheck = now;
+
     let needsRecreation = false;
 
     // Check if essential elements are missing from DOM using isConnected
@@ -589,6 +597,11 @@ class HelperWidget {
 
     if (needsRecreation) {
       this.recreateMissingElements();
+      
+      // Start URL monitoring if we detect SPA-like DOM removal
+      if (this.startUrlMonitoring) {
+        this.startUrlMonitoring();
+      }
     }
   }
 
