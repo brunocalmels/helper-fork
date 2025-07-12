@@ -65,8 +65,8 @@ class HelperWidget {
   private currentConversationSlug: string | null = null;
   private screenshotContext: Context | null = null;
   private renderedContactForms: Set<HTMLElement> = new Set();
-  private startUrlMonitoring: (() => void) | null = null;
   private lastIntegrityCheck = 0;
+  private originalHistoryMethods: { originalPushState: any; originalReplaceState: any } | null = null;
 
   private constructor(config: HelperWidgetConfig) {
     this.config = config;
@@ -539,34 +539,45 @@ class HelperWidget {
 
   private setupNavigationDetection(): void {
     const handleNavigation = () => {
-      setTimeout(() => this.ensureDOMIntegrity(), 100);
+      // Use multiple timing attempts to handle framework DOM manipulation
+      setTimeout(() => {
+        this.ensureDOMIntegrity();
+      }, 100);
+      
+      // Fallback check in case framework manipulates DOM after our first attempt
+      setTimeout(() => {
+        this.ensureDOMIntegrity();
+      }, 500);
     };
 
-    // Listen for navigation events
+    // Listen for standard navigation events
     window.addEventListener("pageshow", handleNavigation);
     window.addEventListener("popstate", handleNavigation);
 
-    // Lazy URL monitoring - only start after first DOM issue detected
-    let urlCheckInterval: NodeJS.Timeout | null = null;
-    let currentUrl = window.location.href;
-    
-    this.startUrlMonitoring = () => {
-      if (urlCheckInterval) return;
-      
-      urlCheckInterval = setInterval(() => {
-        const newUrl = window.location.href;
-        if (newUrl !== currentUrl) {
-          currentUrl = newUrl;
-          this.ensureDOMIntegrity();
-        }
-      }, 1000);
+    // Intercept History API for SPA navigation detection
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function(...args) {
+      originalPushState.apply(this, args);
+      handleNavigation();
     };
+
+    history.replaceState = function(...args) {
+      originalReplaceState.apply(this, args);
+      handleNavigation();
+    };
+
+    // Store originals for cleanup
+    this.originalHistoryMethods = { originalPushState, originalReplaceState };
   }
 
   private ensureDOMIntegrity(): void {
-    // Debounce: only check every 500ms to avoid excessive calls
+    // Debounce: only check every 200ms to avoid excessive calls
     const now = Date.now();
-    if (now - this.lastIntegrityCheck < 500) return;
+    if (now - this.lastIntegrityCheck < 200) {
+      return;
+    }
     this.lastIntegrityCheck = now;
 
     let needsRecreation = false;
@@ -598,16 +609,40 @@ class HelperWidget {
     if (needsRecreation) {
       this.recreateMissingElements();
       
-      // Start URL monitoring if we detect SPA-like DOM removal
-      if (this.startUrlMonitoring) {
-        this.startUrlMonitoring();
-      }
+      // Verify recreation worked after a delay
+      setTimeout(() => {
+        const iconOK = !this.showWidget || (this.helperIcon && this.helperIcon.isConnected);
+        const toggleOK = !this.hasBeenOpened || (this.toggleButton && this.toggleButton.isConnected);
+        const wrapperOK = this.iframeWrapper && this.iframeWrapper.isConnected;
+        
+        if (!iconOK) {
+          this.addHelperIcon();
+        }
+        if (!toggleOK) {
+          this.createToggleButton();
+          if (this.toggleButton) {
+            document.body.appendChild(this.toggleButton);
+            const wasVisible = localStorage.getItem(this.VISIBILITY_STORAGE_KEY) === "true";
+            if (!wasVisible && (this.showToggleButton === true || (this.showToggleButton === null && !this.showWidget))) {
+              (this.toggleButton as HTMLButtonElement).classList.add("visible");
+            }
+          }
+        }
+        if (!wrapperOK) {
+          this.createLoadingOverlay();
+          this.createWrapper();
+        }
+      }, 300);
     }
   }
 
   private recreateMissingElements(): void {
     // Load hasBeenOpened state from localStorage in case it was lost
-    this.hasBeenOpened = localStorage.getItem(this.HAS_BEEN_OPENED_STORAGE_KEY) === "true";
+    const storedHasBeenOpened = localStorage.getItem(this.HAS_BEEN_OPENED_STORAGE_KEY);
+    this.hasBeenOpened = storedHasBeenOpened === "true";
+    
+    // Load visibility state for use throughout the method
+    const widgetWasVisible = localStorage.getItem(this.VISIBILITY_STORAGE_KEY) === "true";
     
     // Recreate wrapper if missing
     if (!this.iframeWrapper) {
@@ -625,21 +660,28 @@ class HelperWidget {
       this.addHelperIcon();
     }
 
-    // Recreate toggle button if missing and was previously shown
-    if (!this.toggleButton && this.hasBeenOpened) {
+    // Recreate toggle button if missing and was previously shown OR if widget was previously visible
+    // (defensive logic in case hasBeenOpened state is lost)
+    const shouldCreateToggle = this.hasBeenOpened || widgetWasVisible || (this.showToggleButton === true);
+    
+    if (!this.toggleButton && shouldCreateToggle) {
       this.createToggleButton();
       if (this.toggleButton) {
         document.body.appendChild(this.toggleButton);
-        const wasVisible = localStorage.getItem(this.VISIBILITY_STORAGE_KEY) === "true";
-        if (!wasVisible && (this.showToggleButton === true || (this.showToggleButton === null && !this.showWidget))) {
+        if (!widgetWasVisible && (this.showToggleButton === true || (this.showToggleButton === null && !this.showWidget))) {
           (this.toggleButton as HTMLButtonElement).classList.add("visible");
+        }
+        
+        // Update hasBeenOpened if we created the toggle button
+        if (!this.hasBeenOpened) {
+          this.hasBeenOpened = true;
+          localStorage.setItem(this.HAS_BEEN_OPENED_STORAGE_KEY, "true");
         }
       }
     }
 
     // Restore visibility state if widget was visible
-    const wasVisible = localStorage.getItem(this.VISIBILITY_STORAGE_KEY) === "true";
-    if (wasVisible && this.iframeWrapper) {
+    if (widgetWasVisible && this.iframeWrapper) {
       this.iframeWrapper.classList.add("visible");
       this.isVisible = true;
       
@@ -878,6 +920,12 @@ class HelperWidget {
     this.guideManager.destroy();
     if (this.observer) {
       this.observer.disconnect();
+    }
+    
+    // Restore original history methods
+    if (this.originalHistoryMethods) {
+      history.pushState = this.originalHistoryMethods.originalPushState;
+      history.replaceState = this.originalHistoryMethods.originalReplaceState;
     }
   }
 
