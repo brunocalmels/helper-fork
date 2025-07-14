@@ -23,7 +23,6 @@ export type HelperWidgetConfig = {
     accent: string;
   };
   viewportWidth?: number;
-  isMinimized?: boolean;
 };
 
 export type ReadPageToolConfig = {

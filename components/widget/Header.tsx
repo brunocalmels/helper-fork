@@ -4,8 +4,12 @@ import { HelperWidgetConfig } from "@helperai/sdk";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { closeWidget, toggleWidgetHeight } from "@/lib/widget/messages";
 
+export type WidgetHeaderConfig = HelperWidgetConfig & {
+  isMinimized?: boolean;
+};
+
 type Props = {
-  config: HelperWidgetConfig;
+  config: WidgetHeaderConfig;
   onShowPreviousConversations: () => void;
   onNewConversation: () => void;
   title: string;
