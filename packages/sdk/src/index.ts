@@ -382,6 +382,10 @@ class HelperWidget {
 
         if (event.origin === scriptOrigin) {
           const { action, content } = event.data.payload;
+          if (event.source && this.iframe && event.source !== this.iframe.contentWindow) {
+            return;
+          }
+          
           switch (action) {
             case CLOSE_ACTION:
               HelperWidget.hide();
