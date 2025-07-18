@@ -5,8 +5,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useWidgetTranslations } from "@/components/widget/i18n";
 import { closeWidget, toggleWidgetHeight } from "@/lib/widget/messages";
 
+export type WidgetHeaderConfig = HelperWidgetConfig & {
+  isMinimized?: boolean;
+};
+
 type Props = {
-  config: HelperWidgetConfig;
+  config: WidgetHeaderConfig;
   onShowPreviousConversations: () => void;
   onNewConversation: () => void;
   title: React.ReactNode;
@@ -21,13 +25,17 @@ const NewChatIcon = React.memo(() => (
 
 const Header = React.memo(function Header({ config, onShowPreviousConversations, onNewConversation, title }: Props) {
   const { t } = useWidgetTranslations();
-  const [isMaximized, setIsMaximized] = React.useState(() => {
-    return localStorage.getItem("helper_widget_minimized") !== "true";
+  const [isMinimized, setIsMinimized] = React.useState(() => {
+    return config.isMinimized === true;
   });
 
+  React.useEffect(() => {
+    setIsMinimized(config.isMinimized === true);
+  }, [config.isMinimized]);
+
   const handleToggleHeight = () => {
-    const newState = !isMaximized;
-    setIsMaximized(newState);
+    const newState = !isMinimized;
+    setIsMinimized(newState);
     toggleWidgetHeight();
   };
 
@@ -72,12 +80,12 @@ const Header = React.memo(function Header({ config, onShowPreviousConversations,
                 <button
                   className="text-primary hover:text-muted-foreground p-1 rounded-full hover:bg-muted"
                   onClick={handleToggleHeight}
-                  aria-label={isMaximized ? t("ariaLabels.minimizeWidget") : t("ariaLabels.maximizeWidget")}
+                  aria-label={isMinimized ? t("ariaLabels.maximizeWidget") : t("ariaLabels.minimizeWidget")}
                 >
-                  {isMaximized ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                  {isMinimized ? <Maximize2 className="h-5 w-5" /> : <Minimize2 className="h-5 w-5" />}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{isMaximized ? t("ui.minimize") : t("ui.maximize")}</TooltipContent>
+              <TooltipContent>{isMinimized ? t("ui.maximize") : t("ui.minimize")}</TooltipContent>
             </Tooltip>
           )}
           <Tooltip>

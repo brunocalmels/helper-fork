@@ -13,7 +13,9 @@ import MessagesList from "@/components/widget/MessagesList";
 import MessagesSkeleton from "@/components/widget/MessagesSkeleton";
 import SupportButtons from "@/components/widget/SupportButtons";
 import { useNewConversation } from "@/components/widget/useNewConversation";
-import { useWidgetView } from "@/components/widget/useWidgetView";
+import { useWidgetView, View } from "@/components/widget/useWidgetView";
+import { publicConversationChannelId } from "@/lib/realtime/channels";
+import { DISABLED, useRealtimeEvent } from "@/lib/realtime/hooks";
 import { captureExceptionAndLog } from "@/lib/shared/sentry";
 import { sendConversationUpdate } from "@/lib/widget/messages";
 import { GuideInstructions } from "@/types/guide";
@@ -27,6 +29,7 @@ type Props = {
   onLoadFailed: () => void;
   guideEnabled: boolean;
   resumeGuide: GuideInstructions | null;
+  currentView: View;
 };
 
 export type Attachment = {
@@ -44,6 +47,7 @@ export default function Conversation({
   onLoadFailed,
   guideEnabled,
   resumeGuide,
+  currentView,
 }: Props) {
   const { t } = useWidgetTranslations();
   const { conversationSlug, setConversationSlug, createConversation } = useNewConversation(token);
@@ -51,6 +55,47 @@ export default function Conversation({
   const [isEscalated, setIsEscalated] = useState(false);
   const [isProvidingDetails, setIsProvidingDetails] = useState(false);
   const { setIsNewConversation } = useWidgetView();
+
+  const [isAgentTyping, setIsAgentTyping] = useState(false);
+  const agentTypingTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  useRealtimeEvent(
+    selectedConversationSlug ? publicConversationChannelId(selectedConversationSlug) : DISABLED,
+    "agent-typing",
+    () => {
+      setIsAgentTyping(true);
+
+      if (agentTypingTimeoutRef.current) clearTimeout(agentTypingTimeoutRef.current);
+      agentTypingTimeoutRef.current = setTimeout(() => setIsAgentTyping(false), 10000);
+    },
+  );
+
+  useEffect(() => {
+    return () => {
+      if (agentTypingTimeoutRef.current) clearTimeout(agentTypingTimeoutRef.current);
+    };
+  }, []);
+
+  useRealtimeEvent(
+    selectedConversationSlug ? publicConversationChannelId(selectedConversationSlug) : DISABLED,
+    "agent-reply",
+    (event) => {
+      setIsAgentTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `staff_${Date.now()}`,
+          role: "assistant",
+          content: event.data.message,
+          createdAt: new Date(event.data.timestamp),
+          reactionType: null,
+          reactionFeedback: null,
+          reactionCreatedAt: null,
+          annotations: event.data.agentName ? [{ user: { firstName: event.data.agentName } }] : undefined,
+        },
+      ]);
+    },
+  );
 
   useEffect(() => {
     if (conversationSlug) {
@@ -201,8 +246,8 @@ export default function Conversation({
     }
   }, [isNewConversation, setMessages, setConversationSlug]);
 
-  const handleSubmit = async (screenshotData?: string) => {
-    if (!input.trim()) return;
+  const handleSubmit = async (screenshotData?: string, attachments?: File[]) => {
+    if (!input.trim() && !screenshotData && (!attachments || attachments.length === 0)) return;
 
     setData(undefined);
 
@@ -214,10 +259,48 @@ export default function Conversation({
 
       if (currentSlug) {
         setIsNewConversation(false);
+
+        const attachmentsToSend = [];
+
+        if (screenshotData) {
+          attachmentsToSend.push({
+            name: "screenshot.png",
+            contentType: "image/png",
+            url: screenshotData,
+          });
+        }
+
+        if (attachments && attachments.length > 0) {
+          const filePromises = attachments.map(async (file) => {
+            try {
+              const reader = new FileReader();
+              const dataUrl = await new Promise<string>((resolve, reject) => {
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+                reader.readAsDataURL(file);
+              });
+
+              return {
+                name: file.name,
+                contentType: file.type,
+                url: dataUrl,
+              };
+            } catch (error) {
+              captureExceptionAndLog(error);
+              return null;
+            }
+          });
+
+          const fileResults = await Promise.all(filePromises);
+          fileResults.forEach((result) => {
+            if (result) {
+              attachmentsToSend.push(result);
+            }
+          });
+        }
+
         handleAISubmit(undefined, {
-          experimental_attachments: screenshotData
-            ? [{ name: "screenshot.png", contentType: "image/png", url: screenshotData }]
-            : [],
+          experimental_attachments: attachmentsToSend,
           body: { conversationSlug: currentSlug },
         });
       }
@@ -261,6 +344,8 @@ export default function Conversation({
     setIsProvidingDetails(true);
   };
 
+  if (currentView !== "chat") return null;
+
   if (isLoadingConversation && !isNewConversation && selectedConversationSlug) {
     return <MessagesSkeleton />;
   }
@@ -279,6 +364,16 @@ export default function Conversation({
         resumeGuide={resumeGuide}
         status={status}
       />
+      {isAgentTyping && (
+        <div className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground">
+          <div className="flex gap-1">
+            <div className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+            <div className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+            <div className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+          </div>
+          Support agent is typing...
+        </div>
+      )}
       <AnimatePresence>
         <SupportButtons
           conversationSlug={conversationSlug}

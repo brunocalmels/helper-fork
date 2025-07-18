@@ -18,15 +18,18 @@ import {
   type NotificationStatus,
 } from "./utils";
 
+const workerCode = require("modern-screenshot/dist/worker.js");
+
+function createInlineWorkerUrl(): string {
+  const blob = new Blob([workerCode], { type: "application/javascript" });
+  return URL.createObjectURL(blob);
+}
+
 declare global {
   interface Window {
     helperWidgetConfig?: HelperWidgetConfig;
   }
 }
-
-const GUMROAD_MAILBOX_SLUG = "gumroad";
-
-const screenshotWorkerUrl = new URL("modern-screenshot/dist/worker.js", import.meta.url).href;
 
 interface Notification {
   id: number;
@@ -64,6 +67,8 @@ class HelperWidget {
   private currentConversationSlug: string | null = null;
   private screenshotContext: Context | null = null;
   private renderedContactForms: Set<HTMLElement> = new Set();
+  private resizeHandler: (() => void) | null = null;
+  private messageHandler: ((event: MessageEvent) => void) | null = null;
 
   private constructor(config: HelperWidgetConfig) {
     this.config = config;
@@ -102,7 +107,6 @@ class HelperWidget {
 
     try {
       const requestBody: Record<string, any> = {
-        mailboxSlug: this.config.mailboxSlug,
         currentURL: window.location.href,
       };
 
@@ -198,11 +202,6 @@ class HelperWidget {
   }
 
   private validateConfig(): boolean {
-    if (!this.config.mailboxSlug) {
-      // eslint-disable-next-line no-console
-      console.error("Invalid config, missing required fields", this.config);
-      return false;
-    }
     return true;
   }
 
@@ -295,7 +294,7 @@ class HelperWidget {
     this.setupMutationObserver();
 
     let resizeTimeout: NodeJS.Timeout;
-    window.addEventListener("resize", () => {
+    const resizeHandler = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         const isSmallScreen = window.innerWidth < 640;
@@ -307,16 +306,16 @@ class HelperWidget {
         this.sendMessageToEmbed({
           action: "CONFIG",
           content: {
-            config: { ...this.config, viewportWidth: window.innerWidth },
+            config: { ...this.config, viewportWidth: window.innerWidth, isMinimized: this.isMinimized },
             sessionToken: this.sessionToken,
             pageHTML: document.documentElement.outerHTML,
             currentURL: window.location.href,
           },
         });
       }, 100);
-    });
+    };
 
-    window.addEventListener("message", async (event: MessageEvent) => {
+    const messageHandler = async (event: MessageEvent) => {
       // Handle messages from our iframe
       if (event.data && event.data.type === this.messageType) {
         const { action, requestId, content } = event.data.payload || {};
@@ -429,7 +428,13 @@ class HelperWidget {
           }
         }
       }
-    });
+    };
+
+    this.resizeHandler = resizeHandler;
+    this.messageHandler = messageHandler;
+
+    window.addEventListener("resize", resizeHandler);
+    window.addEventListener("message", messageHandler);
   }
 
   private onIframeReady(): void {
@@ -453,7 +458,7 @@ class HelperWidget {
     this.sendMessageToEmbed({
       action: "CONFIG",
       content: {
-        config: { ...this.config, viewportWidth: window.innerWidth },
+        config: { ...this.config, viewportWidth: window.innerWidth, isMinimized: this.isMinimized },
         sessionToken: this.sessionToken,
         pageHTML: document.documentElement.outerHTML,
         currentURL: window.location.href,
@@ -542,10 +547,6 @@ class HelperWidget {
 
     this.toggleButton = document.createElement("button");
     this.toggleButton.className = "helper-widget-toggle-button";
-
-    if (this.config.mailboxSlug === GUMROAD_MAILBOX_SLUG) {
-      this.toggleButton.classList.add("gumroad-theme");
-    }
 
     const { backgroundColor, foregroundColor } = this.getIconColors();
 
@@ -664,6 +665,7 @@ class HelperWidget {
       if (this.toggleButton) {
         this.toggleButton.classList.add("with-minimized-widget");
       }
+      this.initFrameConfig();
     }
   }
 
@@ -679,6 +681,7 @@ class HelperWidget {
       if (this.toggleButton) {
         this.toggleButton.classList.remove("with-minimized-widget");
       }
+      this.initFrameConfig();
     }
   }
 
@@ -732,19 +735,56 @@ class HelperWidget {
   }
 
   private destroyInternal(): void {
-    if (this.iframeWrapper) {
+    if (this.iframeWrapper && document.body.contains(this.iframeWrapper)) {
       document.body.removeChild(this.iframeWrapper);
     }
-    if (this.toggleButton) {
+    if (this.helperIcon && document.body.contains(this.helperIcon)) {
+      document.body.removeChild(this.helperIcon);
+    }
+    if (this.toggleButton && document.body.contains(this.toggleButton)) {
       document.body.removeChild(this.toggleButton);
     }
-    if (this.notificationContainer) {
+    if (this.notificationContainer && document.body.contains(this.notificationContainer)) {
       document.body.removeChild(this.notificationContainer);
     }
+    if (this.loadingOverlay && document.body.contains(this.loadingOverlay)) {
+      document.body.removeChild(this.loadingOverlay);
+    }
+
+    this.messageQueue = [];
+
     this.hideAllNotifications();
     this.guideManager.destroy();
+
+    // Reset all element references
+    this.iframe = null;
+    this.iframeWrapper = null;
+    this.helperIcon = null;
+    this.loadingOverlay = null;
+    this.toggleButton = null;
+    this.notificationContainer = null;
+    this.notificationBubbles.clear();
+    this.renderedContactForms.clear();
+
+    // Reset state
+    this.isVisible = false;
+    this.isIframeReady = false;
+    this.hasBeenOpened = false;
+    this.currentConversationSlug = null;
+    this.screenshotContext = null;
+
     if (this.observer) {
       this.observer.disconnect();
+      this.observer = null;
+    }
+
+    if (this.resizeHandler) {
+      window.removeEventListener("resize", this.resizeHandler);
+      this.resizeHandler = null;
+    }
+    if (this.messageHandler) {
+      window.removeEventListener("message", this.messageHandler);
+      this.messageHandler = null;
     }
   }
 
@@ -765,13 +805,17 @@ class HelperWidget {
   }
 
   private async takeScreenshot(): Promise<void> {
-    const { domToPng, createContext } = await import("modern-screenshot");
-    this.screenshotContext ??= await createContext(document.body, {
-      workerUrl: screenshotWorkerUrl,
-      workerNumber: 1,
-      filter: (node) => !(node instanceof HTMLElement && node.className.startsWith("helper-widget")),
-    });
     try {
+      const { domToPng, createContext } = await import("modern-screenshot");
+
+      if (!this.screenshotContext) {
+        this.screenshotContext = await createContext(document.body, {
+          workerUrl: createInlineWorkerUrl(),
+          workerNumber: 1,
+          filter: (node) => !(node instanceof HTMLElement && node.className.startsWith("helper-widget")),
+        });
+      }
+
       const screenshot = await domToPng(this.screenshotContext);
       this.sendMessageToEmbed({ action: "SCREENSHOT", content: screenshot });
     } catch (error) {
@@ -859,9 +903,6 @@ class HelperWidget {
   private createNotificationBubble(id: string): HTMLDivElement {
     const bubble = document.createElement("div");
     bubble.className = "notification-bubble";
-    if (this.config.mailboxSlug === GUMROAD_MAILBOX_SLUG) {
-      bubble.classList.add("gumroad-theme");
-    }
 
     const messageDiv = document.createElement("div");
     messageDiv.className = "message";
@@ -963,9 +1004,6 @@ class HelperWidget {
 
 export default HelperWidget;
 
-if (typeof window !== "undefined" && window.document.currentScript?.dataset.mailbox) {
-  HelperWidget.init({
-    mailboxSlug: window.document.currentScript.dataset.mailbox,
-    ...(window.helperWidgetConfig || {}),
-  });
+if (typeof window !== "undefined" && !window.document.currentScript?.dataset.delayInit) {
+  HelperWidget.init(window.helperWidgetConfig || {});
 }

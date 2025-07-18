@@ -25,7 +25,6 @@ export default async function WidgetTest({
   const translations = locales[currentLocale];
 
   const config: HelperWidgetConfig = {
-    mailboxSlug: "gumroad",
     ...helperAuth,
     title: translations.ui.supportAndHelp,
     locale: locale as "en" | "es" | undefined,

@@ -11,7 +11,7 @@ type Conversation = {
   slug: string;
   subject: string;
   createdAt: string;
-  firstMessage: string | null;
+  latestMessage: string | null;
 };
 
 type ConversationsResponse = {
@@ -113,7 +113,7 @@ export default function PreviousConversations({ token, onSelectConversation, isA
                     onClick={handleClearHistory}
                     className="absolute flex items-center justify-center bottom-4 right-4 w-10 h-10 bg-white border border-gray-200 rounded-full hover:border-black transition-colors"
                   >
-                    <Trash2 className="h-5 w-5" />
+                    <Trash2 className="h-5 w-5 text-black" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{t("ui.clearHistory")}</TooltipContent>
@@ -132,9 +132,9 @@ export default function PreviousConversations({ token, onSelectConversation, isA
                   <HumanizedTime time={conversation.createdAt} />
                 </div>
               </div>
-              {conversation.firstMessage && (
+              {conversation.latestMessage && (
                 <div className="mt-2 line-clamp-2 text-sm text-gray-600 group-hover:text-gray-900">
-                  {conversation.firstMessage}
+                  {conversation.latestMessage}
                 </div>
               )}
             </button>

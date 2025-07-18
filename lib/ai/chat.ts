@@ -190,7 +190,6 @@ const generateReasoning = async ({
   reasoningModel,
   email,
   conversationId,
-  mailboxSlug,
   traceId = null,
   evaluation = false,
   dataStream,
@@ -201,7 +200,6 @@ const generateReasoning = async ({
   reasoningModel: LanguageModelV1;
   email: string | null;
   conversationId: number;
-  mailboxSlug: string;
   traceId?: string | null;
   evaluation?: boolean;
   dataStream?: DataStreamWriter;
@@ -259,7 +257,6 @@ const generateReasoning = async ({
           sessionId: conversationId,
           userId: email ?? "anonymous",
           email: email ?? "anonymous",
-          mailboxSlug,
         },
       },
     });
@@ -320,6 +317,7 @@ export const generateAIResponse = async ({
   reasoningModel = REASONING_MODEL,
   evaluation = false,
   guideEnabled = false,
+  tools: clientProvidedTools,
 }: {
   messages: Message[];
   mailbox: Mailbox;
@@ -342,6 +340,7 @@ export const generateAIResponse = async ({
   seed?: number | undefined;
   evaluation?: boolean;
   dataStream?: DataStreamWriter;
+  tools?: ClientProvidedTool[];
 }) => {
   const lastMessage = messages.findLast((m: Message) => m.role === "user");
   const query = lastMessage?.content || "";
@@ -353,12 +352,34 @@ export const generateAIResponse = async ({
     promptInfo,
   } = await buildPromptMessages(mailbox, email, query, guideEnabled);
 
-  const tools = await buildTools(conversationId, email, mailbox, true, guideEnabled);
+  const tools = await buildTools(conversationId, email, true, guideEnabled);
   if (readPageTool) {
     tools[readPageTool.toolName] = {
       description: readPageTool.toolDescription,
       parameters: z.object({}),
     };
+  }
+
+  if (clientProvidedTools) {
+    clientProvidedTools.forEach((tool) => {
+      tools[tool.name] = {
+        description: tool.description,
+        parameters: z.object(
+          Object.fromEntries(
+            Object.entries(tool.parameters).map(([key, value]) => {
+              let type: z.ZodType = value.type === "string" ? z.string() : z.number();
+              if (value.optional) {
+                type = type.optional();
+              }
+              if (value.description) {
+                type = type.describe(value.description);
+              }
+              return [key, type];
+            }),
+          ),
+        ),
+      };
+    });
   }
 
   const traceId = randomUUID();
@@ -373,7 +394,6 @@ export const generateAIResponse = async ({
       reasoningModel,
       email,
       conversationId,
-      mailboxSlug: mailbox.slug,
       traceId,
       evaluation,
       dataStream,
@@ -415,7 +435,6 @@ export const generateAIResponse = async ({
         store: true,
         metadata: {
           conversationId: conversationId.toString(),
-          mailboxSlug: mailbox.slug,
           email: email ?? "anonymous",
           usingReasoning: addReasoning.toString(),
         },
@@ -428,7 +447,6 @@ export const generateAIResponse = async ({
         sessionId: conversationId,
         userId: email ?? "anonymous",
         email: email ?? "anonymous",
-        mailboxSlug: mailbox.slug,
         usingReasoning: addReasoning,
       },
     },
@@ -468,8 +486,9 @@ export const createUserMessage = async (
   conversationId: number,
   email: string | null,
   query: string,
-  screenshotData?: string,
+  attachmentData: { name: string; contentType: string; data: string }[],
 ) => {
+  const hasAttachments = attachmentData?.length > 0;
   const message = await createConversationMessage({
     conversationId,
     emailFrom: email,
@@ -479,16 +498,20 @@ export const createUserMessage = async (
     isPerfect: false,
     isPinned: false,
     isFlaggedAsBad: false,
-    metadata: { includesScreenshot: !!screenshotData },
+    metadata: { hasAttachments },
   });
 
-  if (screenshotData) {
-    await createAndUploadFile({
-      data: Buffer.from(screenshotData, "base64"),
-      fileName: `screenshot-${Date.now()}.png`,
-      prefix: `screenshots/${conversationId}`,
-      messageId: message.id,
-    });
+  if (hasAttachments) {
+    await Promise.all(
+      attachmentData.map((attachment) =>
+        createAndUploadFile({
+          data: Buffer.from(attachment.data, "base64"),
+          fileName: attachment.name,
+          prefix: `attachments/${conversationId}`,
+          messageId: message.id,
+        }),
+      ),
+    );
   }
 
   return message;
@@ -521,6 +544,13 @@ const createAssistantMessage = (
   });
 };
 
+export interface ClientProvidedTool {
+  name: string;
+  description: string;
+  parameters: Record<string, { type: "string" | "number"; description?: string; optional?: boolean }>;
+  serverRequestUrl?: string;
+}
+
 export const respondWithAI = async ({
   conversation,
   mailbox,
@@ -533,6 +563,7 @@ export const respondWithAI = async ({
   onResponse,
   isHelperUser = false,
   reasoningEnabled = true,
+  tools,
 }: {
   conversation: Conversation;
   mailbox: Mailbox;
@@ -551,6 +582,7 @@ export const respondWithAI = async ({
   }) => void | Promise<void>;
   isHelperUser?: boolean;
   reasoningEnabled?: boolean;
+  tools?: ClientProvidedTool[];
 }) => {
   const previousMessages = await loadPreviousMessages(conversation.id, messageId);
   const messages = appendClientMessage({
@@ -633,6 +665,7 @@ export const respondWithAI = async ({
         readPageTool,
         guideEnabled,
         addReasoning: reasoningEnabled,
+        tools,
         dataStream,
         async onFinish({ text, finishReason, steps, traceId, experimental_providerMetadata, sources, promptInfo }) {
           const hasSensitiveToolCall = steps.some((step: any) =>
@@ -647,7 +680,7 @@ export const respondWithAI = async ({
 
           const reasoning = experimental_providerMetadata?.reasoning;
           const responseText = hasRequestHumanSupportCall
-            ? "_Escalated to a human! You will be contacted soon by email._"
+            ? "_Escalated to a human! You will be contacted soon here and by email._"
             : text;
           const assistantMessage = await handleAssistantMessage(
             responseText,
