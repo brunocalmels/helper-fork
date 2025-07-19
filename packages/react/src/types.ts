@@ -20,4 +20,5 @@ export type HelperWidgetConfig = {
     accent: string;
   };
   viewportWidth?: number;
+  locale?: string;
 };
